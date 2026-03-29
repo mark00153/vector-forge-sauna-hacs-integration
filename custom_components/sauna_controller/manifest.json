@@ -1,0 +1,19 @@
+{
+  "domain": "sauna_controller",
+  "name": "Sauna Controller",
+  "version": "1.0.0",
+  "codeowners": ["@vectorforgecontrols"],
+  "config_flow": true,
+  "documentation": "https://github.com/vectorforgecontrols/sauna-controller-ha",
+  "integration_type": "device",
+  "iot_class": "local_polling",
+  "issue_tracker": "https://github.com/vectorforgecontrols/sauna-controller-ha/issues",
+  "manufacturer": "VectorForge Controls",
+  "requirements": [],
+  "zeroconf": [
+    {
+      "type": "_http._tcp.local.",
+      "name": "sauna-controller*"
+    }
+  ]
+}

@@ -1,0 +1,27 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Add Sauna Controller",
+        "description": "Enter the IP address or hostname of your Sauna Controller.",
+        "data": {
+          "host": "Host (IP or hostname)",
+          "port": "Port",
+          "name": "Device name"
+        }
+      },
+      "zeroconf_confirm": {
+        "title": "Sauna Controller discovered",
+        "description": "Found a Sauna Controller at {host} ({name}). Do you want to add it?"
+      }
+    },
+    "error": {
+      "cannot_connect": "Unable to connect to the device. Check the IP address and ensure it is on the same network.",
+      "unknown": "Unexpected error. Check the logs for details."
+    },
+    "abort": {
+      "already_configured": "This device is already configured.",
+      "cannot_connect": "Unable to connect to the device."
+    }
+  }
+}
