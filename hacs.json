@@ -2,5 +2,7 @@
   "name": "Sauna Controller",
   "content_in_root": false,
   "render_readme": true,
+  "domains": ["integration"],
+  "zip_release": false,
   "homeassistant": "2024.1.0"
 }
