@@ -1,12 +1,13 @@
 """Lovelace dashboard for Sauna Controller."""
 from __future__ import annotations
 
+import json
 import logging
+import os
 from typing import Any
 
 from homeassistant.components.frontend import async_register_built_in_panel, async_remove_panel
 from homeassistant.core import HomeAssistant
-from homeassistant.exceptions import HomeAssistantError
 
 from .const import DOMAIN
 
@@ -15,12 +16,13 @@ _LOGGER = logging.getLogger(__name__)
 DASHBOARD_URL_PATH = "sauna"
 DASHBOARD_TITLE = "Sauna"
 DASHBOARD_ICON = "mdi:sauna"
+STORAGE_KEY = f"lovelace.{DASHBOARD_URL_PATH}"
 
 _REGISTERED_KEY = f"{DOMAIN}_dashboard_registered"
 
 _SLUG = "sauna_controller"
 
-_CONFIG: dict[str, Any] = {
+_DASHBOARD_CONFIG: dict[str, Any] = {
     "title": "Sauna",
     "views": [
         {
@@ -83,33 +85,30 @@ _CONFIG: dict[str, Any] = {
 }
 
 
-class _SaunaDashboard:
-    """Duck-typed Lovelace dashboard — no internal HA base class needed."""
+async def _write_storage_file(hass: HomeAssistant) -> None:
+    """Write the dashboard config to HA's .storage directory.
 
-    is_strategy = False
+    Skips if the file already exists so user edits are preserved.
+    """
+    storage_path = hass.config.path(".storage", STORAGE_KEY)
 
-    def __init__(self, hass: HomeAssistant) -> None:
-        self.hass = hass
-        self.url_path = DASHBOARD_URL_PATH
+    if os.path.exists(storage_path):
+        _LOGGER.debug("Sauna dashboard storage file already exists, skipping write")
+        return
 
-    @property
-    def config(self) -> dict[str, Any]:
-        return _CONFIG
+    storage_data = {
+        "version": 1,
+        "minor_version": 1,
+        "key": STORAGE_KEY,
+        "data": {"config": _DASHBOARD_CONFIG},
+    }
 
-    @property
-    def mode(self) -> str:
-        return "storage"
+    def _write() -> None:
+        with open(storage_path, "w", encoding="utf-8") as f:
+            json.dump(storage_data, f, indent=2)
 
-    async def async_get_info(self) -> dict[str, Any]:
-        return {"mode": "generated", "views": len(_CONFIG.get("views", []))}
-
-    async def async_load(self, force: bool = False) -> dict[str, Any]:
-        return _CONFIG
-
-    async def async_save(self, config: dict[str, Any]) -> None:
-        raise HomeAssistantError(
-            "The Sauna Controller dashboard is auto-generated and cannot be edited"
-        )
+    await hass.async_add_executor_job(_write)
+    _LOGGER.debug("Sauna dashboard storage file written to %s", storage_path)
 
 
 async def async_setup_dashboard(hass: HomeAssistant) -> None:
@@ -117,16 +116,7 @@ async def async_setup_dashboard(hass: HomeAssistant) -> None:
     if hass.data.get(_REGISTERED_KEY):
         return
 
-    lovelace_data: dict = hass.data.get("lovelace", {})
-    dashboards: dict | None = lovelace_data.get("dashboards")
-
-    if dashboards is None:
-        _LOGGER.warning(
-            "Lovelace dashboards registry not found; sauna dashboard will not be added"
-        )
-        return
-
-    dashboards[DASHBOARD_URL_PATH] = _SaunaDashboard(hass)
+    await _write_storage_file(hass)
 
     async_register_built_in_panel(
         hass,
@@ -144,16 +134,17 @@ async def async_setup_dashboard(hass: HomeAssistant) -> None:
 
 
 async def async_unload_dashboard(hass: HomeAssistant) -> None:
-    """Remove the sauna dashboard when the last config entry is unloaded."""
+    """Remove the sauna sidebar panel when the last config entry is unloaded.
+
+    The storage file is intentionally left in place so user edits survive
+    reinstalls.
+    """
     if not hass.data.get(_REGISTERED_KEY):
         return
 
     if hass.data.get(DOMAIN):
         return
 
-    lovelace_data: dict = hass.data.get("lovelace", {})
-    lovelace_data.get("dashboards", {}).pop(DASHBOARD_URL_PATH, None)
-
     async_remove_panel(hass, DASHBOARD_URL_PATH)
     hass.data.pop(_REGISTERED_KEY, None)
-    _LOGGER.debug("Sauna dashboard removed")
+    _LOGGER.debug("Sauna dashboard panel removed")
