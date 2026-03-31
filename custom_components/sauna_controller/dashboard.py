@@ -3,104 +3,153 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 from typing import Any
 
 from homeassistant.components.frontend import async_register_built_in_panel, async_remove_panel
+from homeassistant.components.lovelace.dashboard import LovelaceStorage
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers import entity_registry as er
 
 from .const import DOMAIN
+from .coordinator import SaunaCoordinator
 
 _LOGGER = logging.getLogger(__name__)
 
 DASHBOARD_URL_PATH = "sauna"
 DASHBOARD_TITLE = "Sauna"
-DASHBOARD_ICON = "mdi:sauna"
+DASHBOARD_ICON = "mdi:hot-tub"
 STORAGE_KEY = f"lovelace.{DASHBOARD_URL_PATH}"
 
 _REGISTERED_KEY = f"{DOMAIN}_dashboard_registered"
 
-_SLUG = "sauna_controller"
 
-_DASHBOARD_CONFIG: dict[str, Any] = {
-    "title": "Sauna",
-    "views": [
-        {
-            "title": "Sauna",
-            "icon": "mdi:sauna",
-            "cards": [
-                {
-                    "type": "thermostat",
-                    "entity": f"climate.{_SLUG}",
-                    "name": "Sauna",
-                },
-                {
-                    "type": "horizontal-stack",
-                    "cards": [
-                        {
-                            "type": "entity",
-                            "entity": f"sensor.{_SLUG}_state",
-                            "name": "State",
-                            "icon": "mdi:state-machine",
-                        },
-                        {
-                            "type": "entity",
-                            "entity": f"binary_sensor.{_SLUG}_door",
-                            "name": "Door",
-                        },
-                        {
-                            "type": "entity",
-                            "entity": f"binary_sensor.{_SLUG}_heater",
-                            "name": "Heater",
-                        },
-                    ],
-                },
-                {
-                    "type": "history-graph",
-                    "title": "Temperature History",
-                    "entities": [{"entity": f"sensor.{_SLUG}_temperature"}],
-                    "hours_to_show": 2,
-                },
-                {
-                    "type": "horizontal-stack",
-                    "cards": [
-                        {
-                            "type": "entity",
-                            "entity": f"binary_sensor.{_SLUG}_fault",
-                            "name": "Fault",
-                            "state_color": True,
-                        },
-                        {
-                            "type": "button",
-                            "entity": f"button.{_SLUG}_reset_fault",
-                            "name": "Reset Fault",
-                            "icon": "mdi:alert-circle-check",
-                            "show_state": False,
-                        },
-                    ],
-                },
-            ],
-        }
-    ],
+def _lookup_entity_ids(hass: HomeAssistant, host: str) -> dict[str, str]:
+    """Return a mapping of suffix → real entity_id from the entity registry.
+
+    Falls back to the default slugified ID if an entry isn't found.
+    """
+    registry = er.async_get(hass)
+    suffixes = [
+        "climate",
+        "temperature",
+        "state",
+        "door",
+        "heater",
+        "fault",
+        "master",
+        "reset_fault",
+    ]
+    result: dict[str, str] = {}
+    for suffix in suffixes:
+        unique_id = f"sauna_{host}_{suffix}"
+        entry = registry.async_get_entity_id(
+            _SUFFIX_PLATFORM[suffix], DOMAIN, unique_id
+        )
+        # Fall back to the default slug if registry lookup misses
+        result[suffix] = entry or f"{_SUFFIX_PLATFORM[suffix]}.sauna_controller_{suffix}"
+    return result
+
+
+# Maps unique_id suffix → HA platform domain
+_SUFFIX_PLATFORM: dict[str, str] = {
+    "climate": "climate",
+    "temperature": "sensor",
+    "state": "sensor",
+    "door": "binary_sensor",
+    "heater": "binary_sensor",
+    "fault": "binary_sensor",
+    "master": "switch",
+    "reset_fault": "button",
 }
 
+# Special case: climate unique_id suffix is "climate" but default entity_id
+# doesn't have a suffix appended — override the fallback for climate.
+_CLIMATE_FALLBACK = "climate.sauna_controller"
 
-async def _write_storage_file(hass: HomeAssistant) -> None:
-    """Write the dashboard config to HA's .storage directory.
 
-    Skips if the file already exists so user edits are preserved.
-    """
+def _build_dashboard_config(entities: dict[str, str]) -> dict[str, Any]:
+    """Build the Lovelace dashboard config from resolved entity IDs."""
+    climate_id = entities.get("climate", _CLIMATE_FALLBACK)
+    # Climate entity_id has no suffix in the default slug
+    if climate_id.endswith("_climate"):
+        climate_id = climate_id[: -len("_climate")]
+
+    return {
+        "title": "Sauna",
+        "views": [
+            {
+                "title": "Sauna",
+                "icon": "mdi:hot-tub",
+                "cards": [
+                    {
+                        "type": "thermostat",
+                        "entity": climate_id,
+                        "name": "Sauna",
+                    },
+                    {
+                        "type": "horizontal-stack",
+                        "cards": [
+                            {
+                                "type": "entity",
+                                "entity": entities["state"],
+                                "name": "State",
+                                "icon": "mdi:state-machine",
+                            },
+                            {
+                                "type": "entity",
+                                "entity": entities["door"],
+                                "name": "Door",
+                            },
+                            {
+                                "type": "entity",
+                                "entity": entities["heater"],
+                                "name": "Heater",
+                            },
+                        ],
+                    },
+                    {
+                        "type": "history-graph",
+                        "title": "Temperature History",
+                        "entities": [{"entity": entities["temperature"]}],
+                        "hours_to_show": 2,
+                    },
+                    {
+                        "type": "horizontal-stack",
+                        "cards": [
+                            {
+                                "type": "entity",
+                                "entity": entities["fault"],
+                                "name": "Fault",
+                                "state_color": True,
+                            },
+                            {
+                                "type": "button",
+                                "entity": entities["reset_fault"],
+                                "name": "Reset Fault",
+                                "icon": "mdi:alert-circle-check",
+                                "show_state": False,
+                            },
+                        ],
+                    },
+                ],
+            }
+        ],
+    }
+
+
+async def _write_storage_file(hass: HomeAssistant, coordinator: SaunaCoordinator) -> None:
+    """Write the dashboard config to HA's .storage directory."""
     storage_path = hass.config.path(".storage", STORAGE_KEY)
 
-    if os.path.exists(storage_path):
-        _LOGGER.debug("Sauna dashboard storage file already exists, skipping write")
-        return
+    entities = _lookup_entity_ids(hass, coordinator.host)
+    dashboard_config = _build_dashboard_config(entities)
+    _LOGGER.debug("Sauna dashboard entity IDs resolved: %s", entities)
 
     storage_data = {
         "version": 1,
         "minor_version": 1,
         "key": STORAGE_KEY,
-        "data": {"config": _DASHBOARD_CONFIG},
+        "data": {"config": dashboard_config},
     }
 
     def _write() -> None:
@@ -111,12 +160,29 @@ async def _write_storage_file(hass: HomeAssistant) -> None:
     _LOGGER.debug("Sauna dashboard storage file written to %s", storage_path)
 
 
-async def async_setup_dashboard(hass: HomeAssistant) -> None:
+async def async_setup_dashboard(hass: HomeAssistant, coordinator: SaunaCoordinator) -> None:
     """Register the sauna Lovelace dashboard and sidebar entry."""
     if hass.data.get(_REGISTERED_KEY):
         return
 
-    await _write_storage_file(hass)
+    await _write_storage_file(hass, coordinator)
+
+    lovelace_data = hass.data.get("lovelace")
+    if lovelace_data is not None and hasattr(lovelace_data, "dashboards"):
+        dashboard_config = {
+            "id": DASHBOARD_URL_PATH,
+            "mode": "storage",
+            "icon": DASHBOARD_ICON,
+            "title": DASHBOARD_TITLE,
+            "show_in_sidebar": True,
+            "require_admin": False,
+            "url_path": DASHBOARD_URL_PATH,
+        }
+        lovelace_data.dashboards[DASHBOARD_URL_PATH] = LovelaceStorage(hass, dashboard_config)
+    else:
+        _LOGGER.warning(
+            "Lovelace dashboards registry not found; dashboard cards may not load correctly"
+        )
 
     async_register_built_in_panel(
         hass,
@@ -144,6 +210,10 @@ async def async_unload_dashboard(hass: HomeAssistant) -> None:
 
     if hass.data.get(DOMAIN):
         return
+
+    lovelace_data = hass.data.get("lovelace")
+    if lovelace_data is not None and hasattr(lovelace_data, "dashboards"):
+        lovelace_data.dashboards.pop(DASHBOARD_URL_PATH, None)
 
     async_remove_panel(hass, DASHBOARD_URL_PATH)
     hass.data.pop(_REGISTERED_KEY, None)
