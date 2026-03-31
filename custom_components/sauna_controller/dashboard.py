@@ -114,20 +114,19 @@ def _build_dashboard_config(entities: dict[str, str]) -> dict[str, Any]:
                         "hours_to_show": 2,
                     },
                     {
-                        "type": "horizontal-stack",
-                        "cards": [
+                        "type": "entities",
+                        "title": "Fault Details",
+                        "entities": [
                             {
-                                "type": "entity",
                                 "entity": entities["fault"],
-                                "name": "Fault",
-                                "state_color": True,
+                                "type": "attribute",
+                                "attribute": "fault_list",
+                                "name": "Active Faults",
+                                "icon": "mdi:alert-circle-outline",
                             },
                             {
-                                "type": "button",
                                 "entity": entities["reset_fault"],
                                 "name": "Reset Fault",
-                                "icon": "mdi:alert-circle-check",
-                                "show_state": False,
                             },
                         ],
                     },
