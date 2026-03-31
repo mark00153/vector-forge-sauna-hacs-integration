@@ -4,8 +4,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from homeassistant.components.frontend import async_register_panel, async_remove_panel
-from homeassistant.components.lovelace import LovelaceConfig
+from homeassistant.components.frontend import async_register_built_in_panel, async_remove_panel
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 
@@ -17,10 +16,8 @@ DASHBOARD_URL_PATH = "sauna"
 DASHBOARD_TITLE = "Sauna"
 DASHBOARD_ICON = "mdi:sauna"
 
-# Key used to track that we've registered the panel in hass.data
 _REGISTERED_KEY = f"{DOMAIN}_dashboard_registered"
 
-# Entity IDs are deterministic: device name "Sauna Controller" → slug "sauna_controller"
 _SLUG = "sauna_controller"
 
 _CONFIG: dict[str, Any] = {
@@ -30,13 +27,11 @@ _CONFIG: dict[str, Any] = {
             "title": "Sauna",
             "icon": "mdi:sauna",
             "cards": [
-                # Main climate/thermostat control
                 {
                     "type": "thermostat",
                     "entity": f"climate.{_SLUG}",
                     "name": "Sauna",
                 },
-                # Status row: state machine, door, heater relay
                 {
                     "type": "horizontal-stack",
                     "cards": [
@@ -58,14 +53,12 @@ _CONFIG: dict[str, Any] = {
                         },
                     ],
                 },
-                # Temperature history graph
                 {
                     "type": "history-graph",
                     "title": "Temperature History",
                     "entities": [{"entity": f"sensor.{_SLUG}_temperature"}],
                     "hours_to_show": 2,
                 },
-                # Fault indicator + reset button
                 {
                     "type": "horizontal-stack",
                     "cards": [
@@ -90,41 +83,37 @@ _CONFIG: dict[str, Any] = {
 }
 
 
-class SaunaLovelaceConfig(LovelaceConfig):
-    """Auto-generated Lovelace dashboard for the Sauna Controller."""
+class _SaunaDashboard:
+    """Duck-typed Lovelace dashboard — no internal HA base class needed."""
+
+    is_strategy = False
 
     def __init__(self, hass: HomeAssistant) -> None:
-        """Initialize with the pre-built config."""
-        super().__init__(hass, DASHBOARD_URL_PATH, None)
+        self.hass = hass
+        self.url_path = DASHBOARD_URL_PATH
 
     @property
     def config(self) -> dict[str, Any]:
-        """Return the static dashboard config."""
         return _CONFIG
 
+    @property
+    def mode(self) -> str:
+        return "storage"
+
     async def async_get_info(self) -> dict[str, Any]:
-        """Return dashboard metadata."""
-        return {
-            "mode": "generated",
-            "views": len(_CONFIG.get("views", [])),
-        }
+        return {"mode": "generated", "views": len(_CONFIG.get("views", []))}
 
     async def async_load(self, force: bool = False) -> dict[str, Any]:
-        """Return the dashboard config dict."""
         return _CONFIG
 
     async def async_save(self, config: dict[str, Any]) -> None:
-        """Reject saves — this dashboard is auto-generated."""
         raise HomeAssistantError(
             "The Sauna Controller dashboard is auto-generated and cannot be edited"
         )
 
 
 async def async_setup_dashboard(hass: HomeAssistant) -> None:
-    """Register the sauna Lovelace dashboard and sidebar entry.
-
-    Safe to call multiple times — only registers once.
-    """
+    """Register the sauna Lovelace dashboard and sidebar entry."""
     if hass.data.get(_REGISTERED_KEY):
         return
 
@@ -137,15 +126,15 @@ async def async_setup_dashboard(hass: HomeAssistant) -> None:
         )
         return
 
-    dashboards[DASHBOARD_URL_PATH] = SaunaLovelaceConfig(hass)
+    dashboards[DASHBOARD_URL_PATH] = _SaunaDashboard(hass)
 
-    async_register_panel(
+    async_register_built_in_panel(
         hass,
         component_name="lovelace",
         sidebar_title=DASHBOARD_TITLE,
         sidebar_icon=DASHBOARD_ICON,
         frontend_url_path=DASHBOARD_URL_PATH,
-        config={"mode": "generated"},
+        config={"mode": "storage"},
         require_admin=False,
         update=False,
     )
@@ -159,7 +148,6 @@ async def async_unload_dashboard(hass: HomeAssistant) -> None:
     if not hass.data.get(_REGISTERED_KEY):
         return
 
-    # Leave the dashboard in place if other sauna entries still exist
     if hass.data.get(DOMAIN):
         return
 
