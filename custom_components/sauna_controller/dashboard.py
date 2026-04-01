@@ -68,7 +68,7 @@ _SUFFIX_PLATFORM: dict[str, str] = {
 _CLIMATE_FALLBACK = "climate.sauna_controller"
 
 
-def _build_dashboard_config(entities: dict[str, str]) -> dict[str, Any]:
+def _build_dashboard_config(entities: dict[str, str], device_url: str) -> dict[str, Any]:
     """Build the Lovelace dashboard config from resolved entity IDs."""
     climate_id = entities.get("climate", _CLIMATE_FALLBACK)
     # Climate entity_id has no suffix in the default slug
@@ -82,6 +82,10 @@ def _build_dashboard_config(entities: dict[str, str]) -> dict[str, Any]:
                 "title": "Sauna",
                 "icon": "mdi:hot-tub",
                 "cards": [
+                    {
+                        "type": "markdown",
+                        "content": f"# Sauna Controller\n[Open device web interface »]({device_url})",
+                    },
                     {
                         "type": "thermostat",
                         "entity": climate_id,
@@ -142,7 +146,8 @@ async def _write_storage_file(hass: HomeAssistant, coordinator: SaunaCoordinator
     storage_path = hass.config.path(".storage", STORAGE_KEY)
 
     entities = _lookup_entity_ids(hass, coordinator.host)
-    dashboard_config = _build_dashboard_config(entities)
+    device_url = coordinator.base_url
+    dashboard_config = _build_dashboard_config(entities, device_url)
     _LOGGER.debug("Sauna dashboard entity IDs resolved: %s", entities)
 
     storage_data = {
