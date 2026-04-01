@@ -92,6 +92,12 @@ def _build_dashboard_config(entities: dict[str, str], device_url: str) -> dict[s
                         "name": "Sauna",
                     },
                     {
+                        "type": "entity",
+                        "entity": entities["master"],
+                        "name": "Master Switch",
+                        "icon": "mdi:power",
+                    },
+                    {
                         "type": "horizontal-stack",
                         "cards": [
                             {
@@ -184,30 +190,35 @@ async def async_setup_dashboard(hass: HomeAssistant, coordinator: SaunaCoordinat
     )
 
     hass.data[_REGISTERED_KEY] = True
-    _LOGGER.debug("Sauna dashboard panel registered at /%s", DASHBOARD_URL_PATH)
 
-    # Defer LovelaceStorage registration until HA is fully started so that
-    # hass.data["lovelace"].dashboards is guaranteed to be available.
-    async def _register_lovelace(_hass: HomeAssistant) -> None:
-        lovelace_data = _hass.data.get("lovelace")
+    lovelace_cfg = {
+        "id": DASHBOARD_URL_PATH,
+        "mode": "storage",
+        "icon": DASHBOARD_ICON,
+        "title": DASHBOARD_TITLE,
+        "show_in_sidebar": True,
+        "require_admin": False,
+        "url_path": DASHBOARD_URL_PATH,
+    }
+
+    def _try_register_lovelace(hass: HomeAssistant) -> bool:
+        """Register LovelaceStorage. Returns True if successful."""
+        lovelace_data = hass.data.get("lovelace")
         if lovelace_data is not None and hasattr(lovelace_data, "dashboards"):
-            dashboard_config = {
-                "id": DASHBOARD_URL_PATH,
-                "mode": "storage",
-                "icon": DASHBOARD_ICON,
-                "title": DASHBOARD_TITLE,
-                "show_in_sidebar": True,
-                "require_admin": False,
-                "url_path": DASHBOARD_URL_PATH,
-            }
-            lovelace_data.dashboards[DASHBOARD_URL_PATH] = LovelaceStorage(_hass, dashboard_config)
+            lovelace_data.dashboards[DASHBOARD_URL_PATH] = LovelaceStorage(hass, lovelace_cfg)
             _LOGGER.debug("Sauna LovelaceStorage registered at /%s", DASHBOARD_URL_PATH)
-        else:
-            _LOGGER.warning(
-                "Lovelace dashboards registry not found; dashboard cards may not load correctly"
-            )
+            return True
+        return False
 
-    async_at_started(hass, _register_lovelace)
+    if not _try_register_lovelace(hass):
+        # Lovelace not ready yet — defer until HA fully started.
+        async def _register_lovelace_deferred(_hass: HomeAssistant) -> None:
+            if not _try_register_lovelace(_hass):
+                _LOGGER.warning(
+                    "Lovelace dashboards registry not found; dashboard cards may not load correctly"
+                )
+
+        async_at_started(hass, _register_lovelace_deferred)
 
 
 async def async_unload_dashboard(hass: HomeAssistant) -> None:
